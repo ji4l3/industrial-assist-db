@@ -1,7 +1,7 @@
 # Industrial Assist 数据库说明
 
 本项目使用 **SQLite** 作为数据库，结合 Qt 的 `QSqlDatabase` 和 `QSqlQuery` 进行访问。  
-数据库主要存储 **用户、设备、工单、工单日志、设备时序数据、视频会议与参会人员** 等信息。
+数据库主要存储 **用户、设备、工单、工单日志、设备时序数据、视频会议、参会人员与聊天记录** 等信息。
 
 ---
 
@@ -100,16 +100,40 @@
 
 ---
 
-## 🔗 ER 图
-见 `docs/ER_diagram.png`  
+### 8. `chat_messages` —— 聊天记录（v4 新增）
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| message_id | INTEGER PK | 消息 ID |
+| order_id | FK → work_orders.order_id | 工单 ID |
+| sender_id | FK → users.user_id | 发送人 |
+| receiver_id | FK → users.user_id | 接收人 (可空，群聊可空) |
+| content | TEXT | 消息文本 |
+| content_type | TEXT | 类型 (text/image/file/system) |
+| attachment | TEXT | 附件路径/URL |
+| is_read | INTEGER | 是否已读 (0/1) |
+| created_at | INTEGER | 发送时间 |
+| read_at / edited_at | INTEGER | 已读/编辑时间 |
+| deleted | INTEGER | 是否删除 (软删) |
 
 ---
 
-## 💻 常用 SQL 示例
+## 🔗 ER 图
+见 `docs/ER_diagram.png` （已包含聊天消息表）。
 
-### 插入用户
+---
+
+## 💬 聊天触发器 (v5 新增)
+为保证消息发送人必须是工单的申请人或专家，数据库定义了触发器：
+
 ```sql
-INSERT INTO users(username, password_hash, role, full_name)
-VALUES('req_li', 'argon2id$xxx', 'requester', '李四');
-
+CREATE TRIGGER IF NOT EXISTS trg_chat_sender_valid
+BEFORE INSERT ON chat_messages
+BEGIN
+  SELECT CASE WHEN NOT EXISTS (
+    SELECT 1 FROM work_orders
+    WHERE order_id = NEW.order_id
+      AND (requester_id = NEW.sender_id OR expert_id = NEW.sender_id)
+  )
+  THEN RAISE(ABORT, 'Sender not a participant of this work order') END;
+END;
 
